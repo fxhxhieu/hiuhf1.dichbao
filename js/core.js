@@ -23,7 +23,6 @@ window.HV = window.HV || {};
       items.push({ str: it.str, x: t[4], y: t[5], w: it.width, size });
     }
     items.sort((a, b) => b.y - a.y || a.x - b.x);
-    const gutter = findGutter(items, view);
 
     // 1) gom thành dòng theo đường cơ sở
     const lines = [];
@@ -35,15 +34,16 @@ window.HV = window.HV || {};
       if (!line) { line = { y: it.y, items: [] }; lines.push(line); }
       line.items.push(it);
     }
+    for (const line of lines) line.items.sort((a, b) => a.x - b.x);
+    const gutters = findGutters(lines);
 
     // 2) tách mỗi dòng thành các đoạn liền nhau (tránh nối 2 cột)
     const runs = [];
     for (const line of lines) {
-      line.items.sort((a, b) => a.x - b.x);
       let run = null, prevEnd = 0;
       for (const it of line.items) {
         const gap = it.x - prevEnd;
-        const crossGutter = gutter !== null && prevEnd <= gutter + 0.5 && it.x >= gutter - 0.5;
+        const crossGutter = gutters.some((g) => prevEnd <= g + 0.5 && it.x >= g - 0.5);
         if (!run || crossGutter || gap > it.size * 1.6) {
           // y của đoạn lấy từ chính chữ của nó (hai cột có thể lệch đường cơ sở vài pt)
           run = { x0: it.x, x1: it.x + it.w, y: it.y, size: it.size, text: it.str };
@@ -78,6 +78,22 @@ window.HV = window.HV || {};
     const pitch = pitches.length ? pitches[Math.floor(pitches.length / 2)] : 1.25;
     const breakGap = Math.max(1.5, pitch * 1.4);
 
+    // mép trái/phải của cột chứa mỗi dòng (chỉ xét các dòng cùng cỡ chữ và không vượt qua khe cột)
+    for (const r of runs) {
+      let lo = r.x0, hi = r.x1;
+      for (const o of runs) {
+        if (o === r || Math.abs(o.size - r.size) > 0.2 * r.size) continue;
+        if (Math.min(r.x1, o.x1) - Math.max(r.x0, o.x0) < 0.5 * Math.min(r.x1 - r.x0, o.x1 - o.x0)) continue;
+        if (o.x1 > hi) hi = o.x1;
+        if (o.x0 < lo) lo = o.x0;
+      }
+      const gr = gutters.filter((g) => g >= r.x1 - 1).sort((a, b) => a - b)[0];
+      const gl = gutters.filter((g) => g <= r.x0 + 1).sort((a, b) => b - a)[0];
+      if (gr !== undefined) hi = Math.min(hi, gr);
+      if (gl !== undefined) lo = Math.max(lo, gl);
+      r.cx0 = lo; r.cx1 = hi;
+    }
+
     const blocks = [];
     for (const run of runs) {
       let best = null, bestGap = Infinity;
@@ -92,6 +108,8 @@ window.HV = window.HV || {};
         if (gap < 0.5 * run.size || gap > (unfinished ? 2.8 : breakGap) * run.size) continue;
         if (Math.abs(L.size - run.size) > 0.2 * run.size) continue;
         if (STARTS_NEW.test(run.text)) continue;
+        // dòng trước ngắn hẳn so với bề rộng cột nghĩa là hết đoạn (hội thoại, thơ, danh sách), trừ khi câu còn dở
+        if (!unfinished && L.cx1 - L.x1 > Math.max(3 * L.size, 0.3 * (L.cx1 - L.cx0))) continue;
         const overlap = Math.min(b.x1, run.x1) - Math.max(b.x0, run.x0);
         if (overlap < 0.4 * Math.min(b.x1 - b.x0, run.x1 - run.x0)) continue;
         // ngắt đoạn: thụt đầu dòng sau câu kết thúc, hoặc dòng trước ngắn hẳn
@@ -121,7 +139,17 @@ window.HV = window.HV || {};
       }
       text = text.normalize('NFKC').replace(/\s+/g, ' ').trim();
       const width = b.x1 - b.x0;
-      const center = (b.x0 + b.x1) / 2 - view[0];
+      const mid = (b.x0 + b.x1) / 2 - view[0];
+      const spread = (a) => Math.max(...a) - Math.min(...a);
+      // căn giữa: một dòng ngắn nằm giữa trang hoặc giữa cột, hoặc vài dòng lệch hai mép nhưng cùng tâm
+      let isCenter;
+      if (b.lines.length === 1) {
+        const colW = first.cx1 - first.cx0, colMid = (first.cx0 + first.cx1) / 2 - view[0];
+        isCenter = width < 0.75 * Math.max(colW, width + 1) && (Math.abs(mid - pw / 2) < pw * 0.02 || Math.abs(mid - colMid) < pw * 0.02);
+      } else {
+        isCenter = b.lines.length <= 4 && spread(b.lines.map((l) => l.x0)) > 0.8 * size && spread(b.lines.map((l) => l.x1)) > 0.8 * size
+          && spread(b.lines.map((l) => (l.x0 + l.x1) / 2)) < 1.2 * size;
+      }
       return {
         x0: b.x0, x1: b.x1,
         top: first.y + size * 0.8,
@@ -129,7 +157,7 @@ window.HV = window.HV || {};
         size, text,
         nlines: b.lines.length,
         _lines: HV.debug ? b.lines : undefined,
-        center: Math.abs(center - pw / 2) < pw * 0.02 && width < pw * 0.8,
+        center: isCenter,
         translatable: isTranslatable(text),
       };
     });
@@ -143,7 +171,8 @@ window.HV = window.HV || {};
           const ov = Math.min(a.x1, o.x1) - Math.max(a.x0, o.x0);
           if (ov > 0.5 * Math.min(a.x1 - a.x0, o.x1 - o.x0)) mx = o.x1;
         }
-        if (gutter !== null && a.x1 <= gutter) mx = Math.min(mx, gutter - 3);
+        const g = gutters.filter((x) => x >= a.x1 - 1).sort((p, q) => p - q)[0];
+        if (g !== undefined) mx = Math.min(mx, g - 3);
       }
       a.maxX1 = mx;
     }
@@ -155,34 +184,29 @@ window.HV = window.HV || {};
 
   const HEADING_RE = /^(?:\d{1,2}(?:\.\d{1,2})*|[A-Z](?:\.\d{1,2})+)\.?\s+\p{Lu}[^.:;?!]{0,90}$/u;
 
-  // Tìm khe giữa hai cột: dải trống ở vùng giữa trang mà gần như không dòng nào đi qua.
-  // Trả về toạ độ x giữa khe, hoặc null nếu trang chỉ có một cột.
-  function findGutter(items, view) {
-    if (items.length < 20) return null;
-    const pw = view[2] - view[0];
-    const count = new Array(Math.ceil(pw) + 2).fill(0);
-    for (const it of items) {
-      const a = Math.max(0, Math.floor(it.x - view[0]));
-      const b = Math.min(count.length - 1, Math.ceil(it.x + it.w - view[0]));
-      for (let k = a; k <= b; k++) count[k]++;
-    }
-    // ngưỡng tương đối theo mật độ chữ trong cột (phân vị 80), để tiêu đề/tác giả đi qua khe không làm hỏng việc dò
-    const used = count.filter((c) => c > 0).sort((a, b) => a - b);
-    const ref = used.length ? used[Math.floor(used.length * 0.8)] : 0;
-    const limit = Math.max(2, ref * 0.25);
-    let best = null, start = -1;
-    const lo = Math.floor(pw * 0.3), hi = Math.ceil(pw * 0.7);
-    for (let k = lo; k <= hi + 1; k++) {
-      const empty = k <= hi && count[k] <= limit;
-      if (empty && start < 0) start = k;
-      if (!empty && start >= 0) {
-        const w = k - start;
-        const mid = (start + k) / 2;
-        if (w >= 5 && (!best || w > best.w || (w === best.w && Math.abs(mid - pw / 2) < Math.abs(best.mid - pw / 2)))) best = { w, mid };
-        start = -1;
+  // Tìm khe giữa các cột: khoảng trống giữa hai mục chữ liền nhau trên một dòng, lặp lại ở cùng vị trí x
+  // trên nhiều dòng. Cách này không bị hình ảnh hay tiêu đề đi qua giữa trang làm nhiễu.
+  function findGutters(lines) {
+    const gaps = [];
+    for (const line of lines) {
+      const its = line.items;
+      for (let i = 1; i < its.length; i++) {
+        const prev = its[i - 1], it = its[i];
+        const end = prev.x + prev.w, gap = it.x - end;
+        if (gap > 4 && gap > 0.6 * Math.min(prev.size, it.size)) gaps.push((end + it.x) / 2);
       }
     }
-    return best ? best.mid + view[0] : null;
+    const need = Math.max(5, lines.length * 0.1);
+    if (gaps.length < need) return [];
+    gaps.sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < gaps.length;) {
+      let j = i;
+      while (j + 1 < gaps.length && gaps[j + 1] - gaps[i] < 5) j++;
+      if (j - i + 1 >= need) out.push(gaps[Math.floor((i + j) / 2)]);
+      i = j + 1;
+    }
+    return out;
   }
 
   // "Yongkang Xiao, Sinian Zhang, Yi Dai, ..." - danh sách tên người, không dịch để khỏi sai tên
@@ -191,8 +215,6 @@ window.HV = window.HV || {};
     if (parts.length < 3) return false;
     return parts.every((p) => /^\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*){1,3}[*†‡∗\d]*$/u.test(p));
   }
-
-  HV.findGutter = findGutter;
 
   function isTranslatable(text) {
     const letters = (text.match(/\p{L}/gu) || []).length;
