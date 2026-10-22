@@ -90,17 +90,29 @@ window.HV = window.HV || {};
 
   /* ---------- Translator tích hợp trong Chrome ---------- */
   const chromeCache = new Map();
-  async function chromeTranslator(src) {
-    if (!('Translator' in self)) throw new Error('Trình duyệt không hỗ trợ Translator API (cần Chrome 138+)');
+  const fatal = (msg) => Object.assign(new Error(msg), { fatal: true }); // lỗi không đáng thử lại
+
+  // Chrome chỉ cho tải gói ngôn ngữ khi có thao tác người dùng, nên hàm này phải được gọi
+  // ngay trong lúc xử lý cú bấm nút (trước các bước chờ khác). Sau khi tạo xong, bộ dịch được giữ lại để dùng tiếp.
+  async function chromeTranslator(src, onProgress) {
+    if (!('Translator' in self)) throw fatal('Trình duyệt không hỗ trợ Translator API (cần Chrome 138 trở lên, bản máy tính)');
     const sourceLanguage = src === 'auto' ? 'en' : src;
     if (chromeCache.has(sourceLanguage)) return chromeCache.get(sourceLanguage);
     const opts = { sourceLanguage, targetLanguage: TARGET };
     const av = await Translator.availability(opts);
-    if (av === 'unavailable') throw new Error('Chrome chưa hỗ trợ cặp ngôn ngữ ' + sourceLanguage + ' → vi');
-    const t = await Translator.create(opts);
-    chromeCache.set(sourceLanguage, t);
-    return t;
+    if (av === 'unavailable') throw fatal('Chrome chưa hỗ trợ cặp ngôn ngữ ' + sourceLanguage + ' → vi');
+    try {
+      const t = await Translator.create(Object.assign({}, opts, {
+        monitor(m) { m.addEventListener('downloadprogress', (e) => onProgress && onProgress(e.loaded)); },
+      }));
+      chromeCache.set(sourceLanguage, t);
+      return t;
+    } catch (e) {
+      if (e && e.name === 'NotAllowedError') throw fatal('Chrome cần bạn bấm nút "Dịch" để tải gói ngôn ngữ (' + av + ')');
+      throw e;
+    }
   }
+  HV.prepareChrome = chromeTranslator;
 
   /* ---------- Gemini (cần key miễn phí) ---------- */
   async function geminiBatch(texts, st, signal) {
@@ -146,7 +158,8 @@ window.HV = window.HV || {};
     },
     chrome: {
       label: 'Chrome (trên máy)',
-      available: () => 'Translator' in self,
+      // chỉ dùng được khi đã tạo sẵn bộ dịch lúc bấm nút (xem HV.prepareChrome)
+      available: () => 'Translator' in self && chromeCache.size > 0,
       batch: async (texts, st, signal) => {
         const tr = await chromeTranslator(st.src);
         const out = [];
@@ -192,6 +205,7 @@ window.HV = window.HV || {};
             catch (e) {
               if (e.name === 'AbortError' || signal.aborted) throw e;
               lastErr = e;
+              if (e.fatal) break;
               if (attempt < 2) await sleep([2000, 8000][attempt]);
             }
           }

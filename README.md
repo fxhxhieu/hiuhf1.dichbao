@@ -17,7 +17,7 @@ Website tĩnh để dịch bài báo PDF sang tiếng Việt. Kéo thả file, �
 | Engine | Chất lượng | Ghi chú |
 |---|---|---|
 | **Google Translate** (mặc định) | Tốt | Không cần key. Gom nhiều đoạn vào mỗi lần gọi nên bài 14 trang dịch trong khoảng chục giây. Endpoint không chính thức nên Google có thể đổi hoặc tạm chặn nếu gửi quá nhiều (khi đó web tự chờ rồi chuyển engine khác). |
-| **Chrome trên máy** | Khá | Dùng Translator API có sẵn trong Chrome 138+ (bản máy tính). Không giới hạn, chạy ngay trên máy. |
+| **Chrome trên máy** | Khá | Dùng Translator API có sẵn trong Chrome 138+ (bản máy tính). Không giới hạn, chạy ngay trên máy. Lần đầu Chrome phải tải gói ngôn ngữ (có hiện phần trăm), và chỉ cho tải khi bạn vừa bấm nút **Dịch**. Nếu gói không tải được, web tự chuyển sang Google. |
 | **MyMemory** | Trung bình | Hạn mức nhỏ (khoảng 5.000 ký tự/ngày, nhiều hơn nếu khai email). Chỉ nên làm phương án cuối. |
 | **Gemini** | Rất tốt | Cần API key miễn phí từ Google AI Studio. Key chỉ lưu trong trình duyệt của bạn (localStorage), không nằm trong repo. |
 

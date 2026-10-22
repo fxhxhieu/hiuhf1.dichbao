@@ -427,7 +427,18 @@
     updateTranslateButton();
     const st = { engine: settings.engine, src: settings.src, geminiKey: settings.geminiKey, geminiModel: settings.geminiModel || DEFAULTS.geminiModel, email: settings.email };
     const tr = new HV.Translator(st, (label, err) => toast('Chuyển sang ' + label + ' vì engine trước bị lỗi (' + (err && err.message) + ')', null, 6000));
+    // Chrome chỉ cho tải gói ngôn ngữ ngay sau thao tác người dùng, nên phải tạo bộ dịch trước mọi bước chờ khác
+    let chromePrep = null;
+    if (st.engine === 'chrome') {
+      chromePrep = HV.prepareChrome(st.src, (p) => {
+        $('progress').hidden = false;
+        $('ptext').textContent = 'Đang tải gói ngôn ngữ của Chrome… ' + Math.round(p * 100) + '%';
+      });
+    }
     try { await HV.loadFonts(); } catch (e) { toast('Chưa tải được font tiếng Việt, xem bản dịch có thể lỗi dấu: ' + e.message, 'err'); }
+    if (chromePrep) {
+      try { await chromePrep; } catch (e) { toast('Chrome Translator không dùng được: ' + (e.message || e) + '. Sẽ dùng engine khác.', 'err', 8000); }
+    }
     if (state.mode === 'orig') $('viewSeg').querySelector('[data-mode="split"]').click();
     try {
       for (let i = 0; i < doc.n; i++) {
