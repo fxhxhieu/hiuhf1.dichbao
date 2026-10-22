@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hiuhf1 – Dịch PDF sang tiếng Việt</title>
+  <meta name="description" content="Kéo thả bài báo PDF, xem song song bản gốc và bản dịch tiếng Việt, tải về DOCX hoặc PDF giữ bố cục.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Ctext x='32' y='43' font-size='32' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%3Ehv%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">hv</div>
+      <div class="brand-text"><strong>hiuhf1</strong><span>Dịch PDF sang tiếng Việt</span></div>
+    </div>
+
+    <div class="tools" id="tools" hidden>
+      <div class="seg" id="viewSeg" role="tablist" aria-label="Chế độ hiển thị">
+        <button data-mode="split" class="on" title="Chia đôi gốc | dịch">Chia đôi</button>
+        <button data-mode="orig" title="Chỉ bản gốc">Bản gốc</button>
+        <button data-mode="trans" title="Chỉ bản dịch">Bản dịch</button>
+      </div>
+      <div class="group">
+        <button class="icon" id="zoomOut" title="Thu nhỏ">−</button>
+        <span id="zoomLabel" class="mono">100%</span>
+        <button class="icon" id="zoomIn" title="Phóng to">+</button>
+      </div>
+      <div class="group pager">
+        <input id="pageInput" type="number" min="1" value="1" aria-label="Trang">
+        <span class="mono">/ <span id="pageTotal">0</span></span>
+      </div>
+      <button class="btn primary" id="btnTranslate">Dịch</button>
+      <button class="btn ghost" id="btnStop" hidden>Dừng</button>
+      <div class="menu">
+        <button class="btn" id="btnDownload">Tải về ▾</button>
+        <div class="menu-list" id="downloadMenu" hidden>
+          <button data-dl="docx"><b>DOCX</b><small>Văn bản Word, dễ chỉnh sửa</small></button>
+          <button data-dl="pdf"><b>PDF giữ bố cục</b><small>Trang gốc, chữ đã thay bằng tiếng Việt</small></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="right">
+      <button class="icon" id="btnSettings" title="Cài đặt dịch">⚙</button>
+      <button class="icon" id="btnTheme" title="Đổi giao diện sáng/tối">◐</button>
+      <button class="btn ghost" id="btnNew" hidden>Mở file khác</button>
+    </div>
+  </header>
+
+  <div class="progress" id="progress" hidden>
+    <div class="bar"><i id="bar"></i></div>
+    <span id="ptext"></span>
+  </div>
+
+  <main>
+    <section id="hero" class="hero">
+      <div class="hero-inner">
+        <span class="pill">Miễn phí · chạy ngay trên trình duyệt</span>
+        <h1>Dịch bài báo PDF<br>sang <em>tiếng Việt</em></h1>
+        <p>Kéo thả file PDF, đọc song song bản gốc và bản dịch, rồi tải về DOCX hoặc PDF giữ nguyên bố cục.</p>
+
+        <label class="drop" id="drop" tabindex="0">
+          <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0 4 4m-4-4L8 8"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <strong>Thả file PDF vào đây</strong>
+          <span>hoặc bấm để chọn file</span>
+        </label>
+
+        <ul class="chips">
+          <li>Chia đôi gốc | dịch</li>
+          <li>Giữ bố cục 2 cột</li>
+          <li>Dịch lại được khi bị ngắt</li>
+          <li>Tải DOCX / PDF</li>
+        </ul>
+        <p class="fine">Văn bản được gửi tới dịch vụ dịch bạn chọn (mặc định là Google). File PDF không bị tải lên máy chủ nào của hiuhf1.</p>
+      </div>
+    </section>
+
+    <section id="viewer" class="viewer" hidden data-mode="split">
+      <div class="pane" id="paneOrig">
+        <div class="pane-title"><span class="dot"></span>Bản gốc</div>
+        <div class="scroll" id="scrollOrig"><div class="pages" id="pagesOrig"></div></div>
+      </div>
+      <div class="pane" id="paneTrans">
+        <div class="pane-title"><span class="dot vi"></span>Bản dịch tiếng Việt</div>
+        <div class="scroll" id="scrollTrans"><div class="pages" id="pagesTrans"></div></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h2>Cài đặt dịch</h2>
+      <label>Engine dịch
+        <select id="setEngine">
+          <option value="google">Google Translate (miễn phí, khuyên dùng)</option>
+          <option value="chrome">Chrome trên máy (không giới hạn, Chrome 138+)</option>
+          <option value="mymemory">MyMemory (hạn mức nhỏ)</option>
+          <option value="gemini">Gemini (cần API key miễn phí)</option>
+        </select>
+      </label>
+      <label>Ngôn ngữ nguồn
+        <select id="setSrc">
+          <option value="auto">Tự phát hiện</option>
+          <option value="en">Tiếng Anh</option>
+          <option value="fr">Tiếng Pháp</option>
+          <option value="de">Tiếng Đức</option>
+          <option value="es">Tiếng Tây Ban Nha</option>
+          <option value="zh-CN">Tiếng Trung</option>
+          <option value="ja">Tiếng Nhật</option>
+          <option value="ko">Tiếng Hàn</option>
+          <option value="ru">Tiếng Nga</option>
+        </select>
+      </label>
+      <label>Gemini API key <small>(lấy miễn phí tại Google AI Studio, chỉ lưu trong trình duyệt này)</small>
+        <input id="setKey" type="password" autocomplete="off" placeholder="AIza...">
+      </label>
+      <label>Model Gemini
+        <input id="setModel" type="text" placeholder="gemini-2.5-flash">
+      </label>
+      <label>Email cho MyMemory <small>(không bắt buộc, tăng hạn mức ngày)</small>
+        <input id="setEmail" type="email" placeholder="ban@example.com">
+      </label>
+      <div class="dlg-actions">
+        <button class="btn ghost" id="btnClearCache" type="button">Xoá bản dịch đã lưu của file này</button>
+        <button class="btn primary" value="ok">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/translate.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
