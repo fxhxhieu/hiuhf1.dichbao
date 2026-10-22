@@ -74,14 +74,16 @@
       const bytes = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
       const doc = {
-        id: 'v2|' + file.name + '|' + file.size + '|' + file.lastModified, // v2: đổi cách chia đoạn, bỏ bản lưu cũ
+        id: 'v3|' + file.name + '|' + file.size + '|' + file.lastModified, // v3: đổi cách chia đoạn, bỏ bản lưu cũ
         name: file.name, bytes, pdf, n: pdf.numPages,
-        sizes: [], blocks: new Array(pdf.numPages), trans: new Array(pdf.numPages).fill(null), tver: new Array(pdf.numPages).fill(0),
+        sizes: [], views: [], blocks: new Array(pdf.numPages), trans: new Array(pdf.numPages).fill(null), tver: new Array(pdf.numPages).fill(0),
         getBlocks, getPage: (i) => pdf.getPage(i + 1),
       };
       for (let i = 0; i < doc.n; i++) {
-        const vp = (await pdf.getPage(i + 1)).getViewport({ scale: 1 });
+        const pg = await pdf.getPage(i + 1);
+        const vp = pg.getViewport({ scale: 1 });
         doc.sizes.push({ w: vp.width, h: vp.height });
+        doc.views.push(pg.view);
       }
       state.doc = doc;
       let cached = 0;
@@ -158,6 +160,7 @@
 
   function layoutPages() {
     if (!state.doc) return;
+    clearHover();
     const host = state.mode === 'trans' ? scrolls.trans : scrolls.orig;
     const avail = Math.max(200, host.clientWidth - 34);
     state.pageW = Math.round(avail * state.zoom);
@@ -195,6 +198,7 @@
     if (v.rendered && v.key === key && !force) return;
     const token = ++v.token;
     if (v.task) { try { v.task.cancel(); } catch (e) { /* bỏ qua */ } v.task = null; }
+    getBlocks(i).catch(() => {}); // cần sẵn cho tính năng rê chuột
     try {
       const page = await doc.pdf.getPage(i + 1);
       if (token !== v.token) return;
@@ -316,6 +320,77 @@
     const n = Math.min(state.doc.n, Math.max(1, Number($('pageInput').value) || 1));
     gotoPage(n - 1);
   });
+
+  /* ---------- Rê chuột: đoạn gốc <-> đoạn dịch ---------- */
+  const tip = $('tip');
+  const hl = { orig: document.createElement('div'), trans: document.createElement('div') };
+  hl.orig.className = hl.trans.className = 'hl';
+  let hover = null;
+
+  function hitBlock(i, ev, pageEl) {
+    const doc = state.doc, blocks = doc.blocks[i];
+    if (!blocks) return -1;
+    const r = pageEl.getBoundingClientRect();
+    const s = state.pageW / doc.sizes[i].w, view = doc.views[i];
+    const x = view[0] + (ev.clientX - r.left) / s, y = view[3] - (ev.clientY - r.top) / s;
+    let best = -1, bestArea = Infinity;
+    blocks.forEach((b, k) => {
+      if (!b.translatable) return;
+      if (x < b.x0 - 2 || x > b.x1 + 2 || y > b.top + 2 || y < b.bottom - 2) return;
+      const area = (b.x1 - b.x0) * (b.top - b.bottom);
+      if (area < bestArea) { best = k; bestArea = area; }
+    });
+    return best;
+  }
+
+  function showHover(i, k) {
+    if (hover && hover.i === i && hover.k === k) return;
+    hover = { i, k };
+    const doc = state.doc, b = doc.blocks[i][k], view = doc.views[i], s = state.pageW / doc.sizes[i].w;
+    for (const kind of ['orig', 'trans']) {
+      const el = views[kind][i].el, h = hl[kind];
+      if (h.parentNode !== el) el.appendChild(h);
+      h.style.left = ((b.x0 - view[0]) * s - 3) + 'px';
+      h.style.top = ((view[3] - b.top) * s - 3) + 'px';
+      h.style.width = ((b.x1 - b.x0) * s + 6) + 'px';
+      h.style.height = ((b.top - b.bottom) * s + 6) + 'px';
+    }
+  }
+
+  function clearHover() {
+    hover = null;
+    hl.orig.remove(); hl.trans.remove();
+    tip.hidden = true;
+  }
+
+  // Khi chỉ xem một bên, hiện khung nổi chứa nội dung bên còn lại
+  function updateTip(i, k, e) {
+    const doc = state.doc;
+    let text = '';
+    if (state.mode === 'orig') text = doc.trans[i] && doc.trans[i][k];
+    else if (state.mode === 'trans') text = doc.blocks[i][k].text;
+    if (!text) { tip.hidden = true; return; }
+    tip.textContent = text;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(8, Math.min(e.clientX + 16, innerWidth - w - 12)) + 'px';
+    tip.style.top = (e.clientY + 20 + h > innerHeight - 8 ? Math.max(8, e.clientY - h - 14) : e.clientY + 20) + 'px';
+  }
+
+  ['pagesOrig', 'pagesTrans'].forEach((id) => {
+    const host = $(id);
+    host.addEventListener('mousemove', (e) => {
+      if (!state.doc) return;
+      const pageEl = e.target.closest('.page');
+      if (!pageEl) { clearHover(); return; }
+      const i = Number(pageEl.dataset.i), k = hitBlock(i, e, pageEl);
+      if (k < 0) { clearHover(); return; }
+      showHover(i, k);
+      updateTip(i, k, e);
+    });
+    host.addEventListener('mouseleave', clearHover);
+  });
+  Object.values(scrolls).forEach((s) => s.addEventListener('scroll', clearHover, { passive: true }));
 
   /* ---------- Dịch ---------- */
   function updateTranslateButton() {

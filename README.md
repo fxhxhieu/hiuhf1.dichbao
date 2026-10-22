@@ -6,6 +6,7 @@ Website tĩnh để dịch bài báo PDF sang tiếng Việt. Kéo thả file, �
 
 - **3 chế độ xem:** chia đôi (gốc | dịch), chỉ bản gốc, chỉ bản dịch. Hai bên cuộn đồng bộ.
 - **Bản dịch giữ bố cục:** chữ tiếng Việt được đặt đúng vị trí đoạn gốc, hiểu bài báo 2 cột.
+- **Rê chuột:** rê vào một đoạn ở bản gốc thì đoạn dịch tương ứng sáng lên (và ngược lại). Khi chỉ xem một bên, có khung nổi hiện nội dung bên còn lại. Đơn vị là đoạn văn, không phải từng câu.
 - **Tải về:** DOCX (chỉnh sửa được) hoặc PDF (trang gốc, chữ đã thay bằng tiếng Việt).
 - **Hợp bài dài (30–60 trang):** dịch từng trang, có thanh tiến độ, bấm Dừng/Tiếp tục. Bản dịch lưu trong IndexedDB nên đóng tab rồi mở lại vẫn dịch tiếp được.
 - **Miễn phí, nhiều engine, tự chuyển dự phòng** khi engine đang dùng bị lỗi.
@@ -15,7 +16,7 @@ Website tĩnh để dịch bài báo PDF sang tiếng Việt. Kéo thả file, �
 
 | Engine | Chất lượng | Ghi chú |
 |---|---|---|
-| **Google Translate** (mặc định) | Tốt | Không cần key. Endpoint không chính thức nên Google có thể đổi hoặc chặn nếu gửi quá nhiều. |
+| **Google Translate** (mặc định) | Tốt | Không cần key. Gom nhiều đoạn vào mỗi lần gọi nên bài 14 trang dịch trong khoảng chục giây. Endpoint không chính thức nên Google có thể đổi hoặc tạm chặn nếu gửi quá nhiều (khi đó web tự chờ rồi chuyển engine khác). |
 | **Chrome trên máy** | Khá | Dùng Translator API có sẵn trong Chrome 138+ (bản máy tính). Không giới hạn, chạy ngay trên máy. |
 | **MyMemory** | Trung bình | Hạn mức nhỏ (khoảng 5.000 ký tự/ngày, nhiều hơn nếu khai email). Chỉ nên làm phương án cuối. |
 | **Gemini** | Rất tốt | Cần API key miễn phí từ Google AI Studio. Key chỉ lưu trong trình duyệt của bạn (localStorage), không nằm trong repo. |
@@ -60,7 +61,8 @@ Thư viện (PDF.js, pdf-lib, fontkit, docx) và font Noto Sans được tải t
 ## Giới hạn hiện tại
 
 - **PDF scan (ảnh) chưa được hỗ trợ**, vì chưa có OCR. Cần PDF có chữ chọn được.
-- **Công thức toán, chữ trong hình, bảng phức tạp** có thể không được dịch hoặc bị tách đoạn chưa đẹp. Với PDF xuất ra, vùng này giữ nguyên bản gốc nếu không được nhận là chữ cần dịch.
+- **Công thức toán, chữ trong hình, bảng phức tạp** có thể không được dịch hoặc bị tách đoạn chưa đẹp. Công thức nằm giữa đoạn văn có thể bị mất hoặc lệch trong bản dịch (ký hiệu toán không có trong font như ∈ được đổi thành chữ, ví dụ "thuộc" trong PDF xuất ra).
+- **Tên người** (dòng tác giả) được nhận diện và giữ nguyên, nhưng nhận diện chỉ là phỏng đoán nên đôi khi dòng tên vẫn bị dịch.
 - Chữ tiếng Việt dài hơn tiếng Anh nên cỡ chữ ở bản PDF thường nhỏ hơn bản gốc một chút.
 - Chữ xoay (ví dụ dải ghi mã arXiv bên lề) bị bỏ qua.
 - Văn bản được gửi tới dịch vụ dịch bạn chọn (Google, MyMemory, Gemini). Đừng dùng cho tài liệu mật.

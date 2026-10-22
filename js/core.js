@@ -45,12 +45,14 @@ window.HV = window.HV || {};
         const gap = it.x - prevEnd;
         const crossGutter = gutter !== null && prevEnd <= gutter + 0.5 && it.x >= gutter - 0.5;
         if (!run || crossGutter || gap > it.size * 1.6) {
-          run = { x0: it.x, x1: it.x + it.w, y: line.y, size: it.size, text: it.str };
+          // y của đoạn lấy từ chính chữ của nó (hai cột có thể lệch đường cơ sở vài pt)
+          run = { x0: it.x, x1: it.x + it.w, y: it.y, size: it.size, text: it.str };
           runs.push(run);
         } else {
           const needSpace = gap > it.size * 0.15 && !/\s$/.test(run.text) && !/^\s/.test(it.str);
           run.text += (needSpace ? ' ' : '') + it.str;
           run.x1 = it.x + it.w;
+          if (it.size > run.size + 0.5) { run.size = it.size; run.y = it.y; } // chỉ số trên/dưới nhỏ không quyết định dòng
         }
         prevEnd = it.x + it.w;
       }
@@ -58,21 +60,41 @@ window.HV = window.HV || {};
 
     // 3) gom các đoạn thành khối (đoạn văn)
     runs.sort((a, b) => b.y - a.y || a.x0 - b.x0);
+
+    // khoảng cách dòng điển hình của trang (tính theo cỡ chữ) để đặt ngưỡng ngắt đoạn
+    const pitches = [];
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      for (let j = i + 1; j < runs.length && j < i + 40; j++) {
+        const n = runs[j], gap = r.y - n.y;
+        if (gap < 0.9 * r.size || gap > 1.8 * r.size) continue;
+        if (Math.min(r.x1, n.x1) - Math.max(r.x0, n.x0) < 0.5 * Math.min(r.x1 - r.x0, n.x1 - n.x0)) continue;
+        if (Math.abs(n.size - r.size) > 0.2 * r.size) continue;
+        pitches.push(gap / r.size);
+        break;
+      }
+    }
+    pitches.sort((a, b) => a - b);
+    const pitch = pitches.length ? pitches[Math.floor(pitches.length / 2)] : 1.25;
+    const breakGap = Math.max(1.5, pitch * 1.4);
+
     const blocks = [];
     for (const run of runs) {
       let best = null, bestGap = Infinity;
       for (let k = blocks.length - 1; k >= 0 && k >= blocks.length - 60; k--) {
         const b = blocks[k];
+        if (b.closed) continue;
         const L = b.lines[b.lines.length - 1];
         const gap = L.y - run.y;
-        if (gap < 0.5 * run.size || gap > 1.9 * run.size) continue;
+        const ended = /[.:?!]["')\]]?\s*$/.test(L.text);
+        // câu đang dở (dòng sau bắt đầu bằng chữ thường) thì chấp nhận cả khi có dòng công thức chen giữa
+        const unfinished = !ended && /^[a-z]/.test(run.text);
+        if (gap < 0.5 * run.size || gap > (unfinished ? 2.8 : breakGap) * run.size) continue;
         if (Math.abs(L.size - run.size) > 0.2 * run.size) continue;
         if (STARTS_NEW.test(run.text)) continue;
         const overlap = Math.min(b.x1, run.x1) - Math.max(b.x0, run.x0);
         if (overlap < 0.4 * Math.min(b.x1 - b.x0, run.x1 - run.x0)) continue;
-        // ngắt đoạn: giãn dòng lớn, thụt đầu dòng sau câu kết thúc, hoặc dòng trước ngắn hẳn
-        const ended = /[.:?!]["')\]]?\s*$/.test(L.text);
-        if (gap > 1.5 * run.size) continue;
+        // ngắt đoạn: thụt đầu dòng sau câu kết thúc, hoặc dòng trước ngắn hẳn
         if (run.x0 - b.x0 > 1.0 * run.size && ended) continue;
         if (b.x1 - L.x1 > 3 * run.size && ended) continue;
         if (gap < bestGap) { best = b; bestGap = gap; }
@@ -82,12 +104,13 @@ window.HV = window.HV || {};
         best.x0 = Math.min(best.x0, run.x0);
         best.x1 = Math.max(best.x1, run.x1);
       } else {
-        blocks.push({ lines: [run], x0: run.x0, x1: run.x1 });
+        // tiêu đề mục đánh số ("3.5 Tên mục") đứng riêng một khối, không nhận thêm dòng
+        blocks.push({ lines: [run], x0: run.x0, x1: run.x1, closed: HEADING_RE.test(run.text) });
       }
     }
 
     const pw = view[2] - view[0];
-    return blocks.map((b) => {
+    const out = blocks.map((b) => {
       const first = b.lines[0], last = b.lines[b.lines.length - 1];
       const size = first.size;
       let text = b.lines[0].text.trim();
@@ -105,14 +128,32 @@ window.HV = window.HV || {};
         bottom: last.y - size * 0.22,
         size, text,
         nlines: b.lines.length,
+        _lines: HV.debug ? b.lines : undefined,
         center: Math.abs(center - pw / 2) < pw * 0.02 && width < pw * 0.8,
         translatable: isTranslatable(text),
       };
     });
+
+    // mép phải của cột chứa khối, để dòng ngắn (tiêu đề mục...) được kéo rộng khi chữ Việt dài hơn
+    for (const a of out) {
+      let mx = a.x1;
+      if (!a.center) {
+        for (const o of out) {
+          if (o === a || o.x1 <= mx) continue;
+          const ov = Math.min(a.x1, o.x1) - Math.max(a.x0, o.x0);
+          if (ov > 0.5 * Math.min(a.x1 - a.x0, o.x1 - o.x0)) mx = o.x1;
+        }
+        if (gutter !== null && a.x1 <= gutter) mx = Math.min(mx, gutter - 3);
+      }
+      a.maxX1 = mx;
+    }
+    return out;
   };
 
   // Dòng bắt đầu bằng gạch đầu dòng, [1], 2), 2.1 Tiêu đề... luôn mở khối mới
   const STARTS_NEW = /^(?:[•▪◦●■‣∙·]|[-–—]\s|\(?\d{1,2}\)\s|\[\d+\]\s|\d{1,2}(?:\.\d{1,2})*\.?\s+\p{Lu})/u;
+
+  const HEADING_RE = /^(?:\d{1,2}(?:\.\d{1,2})*|[A-Z](?:\.\d{1,2})+)\.?\s+\p{Lu}[^.:;?!]{0,90}$/u;
 
   // Tìm khe giữa hai cột: dải trống ở vùng giữa trang mà gần như không dòng nào đi qua.
   // Trả về toạ độ x giữa khe, hoặc null nếu trang chỉ có một cột.
@@ -125,7 +166,10 @@ window.HV = window.HV || {};
       const b = Math.min(count.length - 1, Math.ceil(it.x + it.w - view[0]));
       for (let k = a; k <= b; k++) count[k]++;
     }
-    const limit = Math.max(1, items.length * 0.04);
+    // ngưỡng tương đối theo mật độ chữ trong cột (phân vị 80), để tiêu đề/tác giả đi qua khe không làm hỏng việc dò
+    const used = count.filter((c) => c > 0).sort((a, b) => a - b);
+    const ref = used.length ? used[Math.floor(used.length * 0.8)] : 0;
+    const limit = Math.max(2, ref * 0.25);
     let best = null, start = -1;
     const lo = Math.floor(pw * 0.3), hi = Math.ceil(pw * 0.7);
     for (let k = lo; k <= hi + 1; k++) {
@@ -141,11 +185,21 @@ window.HV = window.HV || {};
     return best ? best.mid + view[0] : null;
   }
 
+  // "Yongkang Xiao, Sinian Zhang, Yi Dai, ..." - danh sách tên người, không dịch để khỏi sai tên
+  function isNameList(text) {
+    const parts = text.split(/\s*(?:,|;|\band\b|&)\s*/).filter(Boolean);
+    if (parts.length < 3) return false;
+    return parts.every((p) => /^\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*){1,3}[*†‡∗\d]*$/u.test(p));
+  }
+
+  HV.findGutter = findGutter;
+
   function isTranslatable(text) {
     const letters = (text.match(/\p{L}/gu) || []).length;
     if (letters < 3) return false;
     if (letters / text.length < 0.5) return false;
     if (/^(https?:\/\/|www\.)\S+$/.test(text)) return false;
+    if (isNameList(text)) return false;
     return true;
   }
 
@@ -159,7 +213,7 @@ window.HV = window.HV || {};
     let body = 10, max = 0;
     for (const [k, v] of weights) if (v > max) { max = v; body = k; }
     for (const b of blocks) {
-      b.heading = b.size > body * 1.15 && b.nlines <= 3;
+      b.heading = (b.size > body * 1.15 && b.nlines <= 3) || (b.nlines === 1 && HEADING_RE.test(b.text));
       b.level = b.size > body * 1.6 ? 1 : 2;
     }
     return blocks;
@@ -202,7 +256,7 @@ window.HV = window.HV || {};
 
   // measure(text, size) -> độ rộng theo đơn vị PDF
   HV.layoutBlock = function (b, text, measure) {
-    const width = b.x1 - b.x0;
+    const width = (b.center ? b.x1 : b.maxX1 || b.x1) - b.x0;
     const availH = (b.top - b.bottom) + b.size * 0.45;
     const minSize = b.size * 0.55;
     const LH = 1.15;

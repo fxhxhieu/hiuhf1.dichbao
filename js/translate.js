@@ -40,17 +40,38 @@ window.HV = window.HV || {};
   }
 
   /* ---------- Google Translate (không chính thức) ---------- */
-  async function gtx(text, src, signal) {
-    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + src + '&tl=' + TARGET;
+  // Endpoint /t nhận nhiều tham số q trong một lần gọi, nên ít bị giới hạn tốc độ hơn gọi từng đoạn.
+  async function gtxBatch(texts, src, signal) {
+    const url = 'https://translate.googleapis.com/translate_a/t?client=gtx&dt=t&sl=' + src + '&tl=' + TARGET;
+    const body = new URLSearchParams();
+    texts.forEach((t) => body.append('q', t));
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ q: text }),
+      body,
       signal,
     });
     if (!res.ok) throw new Error('Google trả về HTTP ' + res.status);
     const data = await res.json();
-    return data[0].map((s) => s[0]).join('');
+    if (!Array.isArray(data) || data.length !== texts.length) throw new Error('Google trả về sai số đoạn');
+    // sl=auto trả [bản dịch, ngôn ngữ nguồn], sl cụ thể trả thẳng chuỗi
+    return data.map((x) => (Array.isArray(x) ? x[0] : x));
+  }
+
+  async function googleBatch(texts, src, signal) {
+    const pieces = [];
+    texts.forEach((t, idx) => splitText(t, 3500).forEach((c) => pieces.push({ idx, c })));
+    const groups = [];
+    let g = [], n = 0;
+    for (const p of pieces) {
+      if (g.length && (n + p.c.length > 4500 || g.length >= 40)) { groups.push(g); g = []; n = 0; }
+      g.push(p); n += p.c.length;
+    }
+    if (g.length) groups.push(g);
+    const results = await pool(groups, 2, (grp) => gtxBatch(grp.map((p) => p.c), src, signal), signal);
+    const out = texts.map(() => []);
+    groups.forEach((grp, gi) => grp.forEach((p, k) => out[p.idx].push(results[gi][k])));
+    return out.map((a) => a.join(' '));
   }
 
   /* ---------- MyMemory ---------- */
@@ -121,8 +142,7 @@ window.HV = window.HV || {};
     google: {
       label: 'Google Translate',
       available: () => true,
-      batch: (texts, st, signal) =>
-        pool(texts, 4, async (t) => (await pool(splitText(t, 4000), 1, (c) => gtx(c, st.src, signal), signal)).join(' '), signal),
+      batch: (texts, st, signal) => googleBatch(texts, st.src, signal),
     },
     chrome: {
       label: 'Chrome (trên máy)',
@@ -172,7 +192,7 @@ window.HV = window.HV || {};
             catch (e) {
               if (e.name === 'AbortError' || signal.aborted) throw e;
               lastErr = e;
-              await sleep(900 * Math.pow(2, attempt));
+              if (attempt < 2) await sleep([2000, 8000][attempt]);
             }
           }
         } else {
