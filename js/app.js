@@ -74,7 +74,7 @@
       const bytes = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
       const doc = {
-        id: file.name + '|' + file.size + '|' + file.lastModified,
+        id: 'v2|' + file.name + '|' + file.size + '|' + file.lastModified, // v2: đổi cách chia đoạn, bỏ bản lưu cũ
         name: file.name, bytes, pdf, n: pdf.numPages,
         sizes: [], blocks: new Array(pdf.numPages), trans: new Array(pdf.numPages).fill(null), tver: new Array(pdf.numPages).fill(0),
         getBlocks, getPage: (i) => pdf.getPage(i + 1),

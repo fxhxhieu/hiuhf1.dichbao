@@ -23,6 +23,7 @@ window.HV = window.HV || {};
       items.push({ str: it.str, x: t[4], y: t[5], w: it.width, size });
     }
     items.sort((a, b) => b.y - a.y || a.x - b.x);
+    const gutter = findGutter(items, view);
 
     // 1) gom thành dòng theo đường cơ sở
     const lines = [];
@@ -42,7 +43,8 @@ window.HV = window.HV || {};
       let run = null, prevEnd = 0;
       for (const it of line.items) {
         const gap = it.x - prevEnd;
-        if (!run || gap > it.size * 1.6) {
+        const crossGutter = gutter !== null && prevEnd <= gutter + 0.5 && it.x >= gutter - 0.5;
+        if (!run || crossGutter || gap > it.size * 1.6) {
           run = { x0: it.x, x1: it.x + it.w, y: line.y, size: it.size, text: it.str };
           runs.push(run);
         } else {
@@ -65,6 +67,7 @@ window.HV = window.HV || {};
         const gap = L.y - run.y;
         if (gap < 0.5 * run.size || gap > 1.9 * run.size) continue;
         if (Math.abs(L.size - run.size) > 0.2 * run.size) continue;
+        if (STARTS_NEW.test(run.text)) continue;
         const overlap = Math.min(b.x1, run.x1) - Math.max(b.x0, run.x0);
         if (overlap < 0.4 * Math.min(b.x1 - b.x0, run.x1 - run.x0)) continue;
         // ngắt đoạn: giãn dòng lớn, thụt đầu dòng sau câu kết thúc, hoặc dòng trước ngắn hẳn
@@ -107,6 +110,36 @@ window.HV = window.HV || {};
       };
     });
   };
+
+  // Dòng bắt đầu bằng gạch đầu dòng, [1], 2), 2.1 Tiêu đề... luôn mở khối mới
+  const STARTS_NEW = /^(?:[•▪◦●■‣∙·]|[-–—]\s|\(?\d{1,2}\)\s|\[\d+\]\s|\d{1,2}(?:\.\d{1,2})*\.?\s+\p{Lu})/u;
+
+  // Tìm khe giữa hai cột: dải trống ở vùng giữa trang mà gần như không dòng nào đi qua.
+  // Trả về toạ độ x giữa khe, hoặc null nếu trang chỉ có một cột.
+  function findGutter(items, view) {
+    if (items.length < 20) return null;
+    const pw = view[2] - view[0];
+    const count = new Array(Math.ceil(pw) + 2).fill(0);
+    for (const it of items) {
+      const a = Math.max(0, Math.floor(it.x - view[0]));
+      const b = Math.min(count.length - 1, Math.ceil(it.x + it.w - view[0]));
+      for (let k = a; k <= b; k++) count[k]++;
+    }
+    const limit = Math.max(1, items.length * 0.04);
+    let best = null, start = -1;
+    const lo = Math.floor(pw * 0.3), hi = Math.ceil(pw * 0.7);
+    for (let k = lo; k <= hi + 1; k++) {
+      const empty = k <= hi && count[k] <= limit;
+      if (empty && start < 0) start = k;
+      if (!empty && start >= 0) {
+        const w = k - start;
+        const mid = (start + k) / 2;
+        if (w >= 5 && (!best || w > best.w || (w === best.w && Math.abs(mid - pw / 2) < Math.abs(best.mid - pw / 2)))) best = { w, mid };
+        start = -1;
+      }
+    }
+    return best ? best.mid + view[0] : null;
+  }
 
   function isTranslatable(text) {
     const letters = (text.match(/\p{L}/gu) || []).length;
