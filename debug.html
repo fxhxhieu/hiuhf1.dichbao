@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hiuhf1 – Kiểm tra tách đoạn</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #f5f6fb; --panel: #fff; --text: #1b1d2a; --muted: #6b7088; --border: #e2e5f0; --accent: #4f46e5; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+    header h1 { font-size: 15px; margin: 0 8px 0 0; }
+    header label { display: inline-flex; align-items: center; gap: 6px; }
+    button { font: inherit; padding: 5px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); cursor: pointer; }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    .legend { display: flex; gap: 12px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 12px; height: 12px; border: 2px solid; vertical-align: -2px; margin-right: 4px; }
+    main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 420px; }
+    #stage { overflow: auto; padding: 16px; background: #d9dcea; }
+    #wrap { position: relative; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,.15); background: #fff; }
+    #wrap canvas { display: block; position: absolute; left: 0; top: 0; }
+    aside { overflow: auto; border-left: 1px solid var(--border); background: var(--panel); padding: 10px 12px; }
+    aside h2 { font-size: 14px; margin: 12px 0 6px; }
+    #summary { font-size: 13px; }
+    #summary table { border-collapse: collapse; width: 100%; }
+    #summary td, #summary th { border-bottom: 1px solid var(--border); padding: 3px 6px; text-align: left; }
+    #summary tr[data-p] { cursor: pointer; }
+    #summary tr[data-p]:hover { background: #eef0f8; }
+    .ok { color: #16a34a; } .bad { color: #dc2626; }
+    #list { list-style: none; margin: 0; padding: 0; }
+    #list li { padding: 6px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+    #list li:hover, #list li.sel { background: #eef0f8; }
+    #list .tag { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 4px; margin-right: 3px; color: #fff; }
+    .t-h { background: #ea580c; } .t-c { background: #7c3aed; } .t-n { background: #6b7088; } .t-new { background: #dc2626; }
+    .muted { color: var(--muted); }
+    #drop { margin: 40px auto; max-width: 560px; text-align: center; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Kiểm tra tách đoạn</h1>
+    <label>PDF <input type="file" id="pdfInput" accept=".pdf,application/pdf"></label>
+    <label>Snapshot cũ <input type="file" id="snapInput" accept=".json,application/json"></label>
+    <button id="btnSnap" disabled>Tải snapshot hiện tại</button>
+    <button id="prev" disabled>◀</button><span id="pageLabel" class="muted">–</span><button id="next" disabled>▶</button>
+    <label><input type="checkbox" id="showGutters" checked> Khe cột</label>
+    <span class="legend">
+      <span><i style="border-color:#2563eb"></i>đoạn</span>
+      <span><i style="border-color:#ea580c"></i>tiêu đề</span>
+      <span><i style="border-color:#7c3aed;border-style:dashed"></i>căn giữa</span>
+      <span><i style="border-color:#9ca3af"></i>không dịch</span>
+      <span><i style="border-color:#dc2626;background:rgba(220,38,38,.15)"></i>khác snapshot</span>
+    </span>
+  </header>
+  <main>
+    <div id="stage">
+      <div id="drop">Chọn một file PDF để xem các khối chữ mà <code>core.js</code> tách ra.<br>
+        Có thể mở thẳng bằng địa chỉ <code>debug.html?pdf=samples/bai.pdf&amp;snap=samples/bai.json</code> khi chạy qua web server.</div>
+      <div id="wrap" hidden><canvas id="cPage"></canvas><canvas id="cOver"></canvas></div>
+    </div>
+    <aside>
+      <div id="summary" class="muted">Chưa có snapshot để so sánh.</div>
+      <h2>Các khối của trang</h2>
+      <ol id="list"></ol>
+    </aside>
+  </main>
+  <script src="vendor/pdf.min.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/debug.js"></script>
+</body>
+</html>

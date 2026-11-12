@@ -1,0 +1,14 @@
+{
+  "name": "hiuhf1 – Dịch PDF sang tiếng Việt",
+  "short_name": "hiuhf1",
+  "description": "Dịch bài báo PDF sang tiếng Việt ngay trên trình duyệt.",
+  "lang": "vi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6fb",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

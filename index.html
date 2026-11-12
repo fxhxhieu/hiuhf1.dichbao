@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>hiuhf1 – Dịch PDF sang tiếng Việt</title>
   <meta name="description" content="Kéo thả bài báo PDF, xem song song bản gốc và bản dịch tiếng Việt, tải về DOCX hoặc PDF giữ bố cục.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Ctext x='32' y='43' font-size='32' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%3Ehv%3C/text%3E%3C/svg%3E">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -22,21 +23,40 @@
         <button data-mode="trans" title="Chỉ bản dịch">Bản dịch</button>
       </div>
       <div class="group">
-        <button class="icon" id="zoomOut" title="Thu nhỏ">−</button>
+        <button class="icon" id="zoomOut" title="Thu nhỏ (Ctrl + cuộn chuột)">−</button>
         <span id="zoomLabel" class="mono">100%</span>
-        <button class="icon" id="zoomIn" title="Phóng to">+</button>
+        <button class="icon" id="zoomIn" title="Phóng to (Ctrl + cuộn chuột)">+</button>
       </div>
       <div class="group pager">
         <input id="pageInput" type="number" min="1" value="1" aria-label="Trang">
         <span class="mono">/ <span id="pageTotal">0</span></span>
       </div>
-      <button class="btn primary" id="btnTranslate">Dịch</button>
+      <div class="group search">
+        <input id="searchInput" type="search" placeholder="Tìm trong bài…" aria-label="Tìm trong bản gốc và bản dịch" title="Tìm trong bản gốc và bản dịch (Ctrl+F). Enter: kết quả sau, Shift+Enter: kết quả trước">
+        <span id="searchInfo" class="mono"></span>
+      </div>
+      <div class="menu split">
+        <button class="btn primary" id="btnTranslate">Dịch</button>
+        <button class="btn primary caret" id="btnTransMenu" title="Tuỳ chọn dịch" aria-label="Tuỳ chọn dịch">▾</button>
+        <div class="menu-list" id="transMenu" hidden>
+          <div class="menu-note" id="transInfo"></div>
+          <button data-tr="current"><b>Dịch trang đang xem</b><small>Chỉ dịch trang hiện tại</small></button>
+          <button data-tr="range"><b>Dịch khoảng trang…</b><small>Ví dụ: 1-5, 8</small></button>
+          <button data-tr="redo"><b>Dịch lại trang đang xem</b><small>Bỏ bản dịch cũ của trang này, dịch lại từ đầu</small></button>
+        </div>
+      </div>
       <button class="btn ghost" id="btnStop" hidden>Dừng</button>
       <div class="menu">
         <button class="btn" id="btnDownload">Tải về ▾</button>
         <div class="menu-list" id="downloadMenu" hidden>
           <button data-dl="docx"><b>DOCX</b><small>Văn bản Word, dễ chỉnh sửa</small></button>
+          <button data-dl="docx2"><b>DOCX song ngữ</b><small>Bảng hai cột: bản gốc | bản dịch</small></button>
           <button data-dl="pdf"><b>PDF giữ bố cục</b><small>Trang gốc, chữ đã thay bằng tiếng Việt</small></button>
+          <button data-dl="pdfi"><b>PDF song ngữ (xen kẽ)</b><small>Mỗi trang gốc đi kèm trang dịch ngay sau</small></button>
+          <button data-dl="pdfs"><b>PDF song ngữ (cạnh nhau)</b><small>Gốc bên trái, dịch bên phải trên một trang ngang</small></button>
+          <hr>
+          <button data-dl="json"><b>Bản dịch (.json)</b><small>Gửi cho người khác mở lại mà không phải dịch</small></button>
+          <button data-dl="import"><b>Nhập bản dịch (.json)…</b><small>Ghép bản dịch đã xuất vào bài đang mở</small></button>
         </div>
       </div>
     </div>
@@ -67,13 +87,26 @@
           <span>hoặc bấm để chọn file</span>
         </label>
 
+        <section class="recent" id="recent" hidden>
+          <div class="recent-head">
+            <h3>Bài đã mở gần đây</h3>
+            <span class="mono" id="storageInfo"></span>
+          </div>
+          <ul id="recentList"></ul>
+          <div class="recent-actions">
+            <button class="btn ghost" id="btnClearTm" type="button">Xoá bộ nhớ dịch</button>
+            <button class="btn ghost" id="btnClearAll" type="button">Xoá tất cả</button>
+          </div>
+        </section>
+
         <ul class="chips">
           <li>Chia đôi gốc | dịch</li>
           <li>Giữ bố cục 2 cột</li>
           <li>Dịch lại được khi bị ngắt</li>
           <li>Tải DOCX / PDF</li>
+          <li>Có OCR cho bản scan</li>
         </ul>
-        <p class="fine">Văn bản được gửi tới dịch vụ dịch bạn chọn (mặc định là Google). File PDF không bị tải lên máy chủ nào của hiuhf1.</p>
+        <p class="fine">Văn bản được gửi tới dịch vụ dịch bạn chọn (mặc định là Google). File PDF chỉ lưu trong trình duyệt của bạn, không bị tải lên máy chủ nào của hiuhf1.</p>
       </div>
     </section>
 
@@ -113,11 +146,23 @@
           <option value="ru">Tiếng Nga</option>
         </select>
       </label>
+      <label>Bảng thuật ngữ <small>(mỗi dòng một mục, dạng <code>attention = cơ chế chú ý</code>; chỉ ghi từ gốc nếu muốn giữ nguyên)</small>
+        <textarea id="setGlossary" rows="4" spellcheck="false" placeholder="transformer&#10;attention = cơ chế chú ý&#10;fine-tuning = tinh chỉnh"></textarea>
+      </label>
+      <label class="check"><input type="checkbox" id="setSkipRefs"> Không dịch phần Tài liệu tham khảo (References)</label>
+      <label>Kiểu chữ bản dịch
+        <select id="setFont">
+          <option value="auto">Tự động theo bản gốc</option>
+          <option value="serif">Có chân (giống Times)</option>
+          <option value="sans">Không chân</option>
+        </select>
+      </label>
       <label>Gemini API key <small>(lấy miễn phí tại Google AI Studio, chỉ lưu trong trình duyệt này)</small>
         <input id="setKey" type="password" autocomplete="off" placeholder="AIza...">
       </label>
-      <label>Model Gemini
-        <input id="setModel" type="text" placeholder="gemini-2.5-flash">
+      <label>Model Gemini <small id="modelInfo"></small>
+        <input id="setModel" type="text" list="geminiModels" placeholder="gemini-2.5-flash">
+        <datalist id="geminiModels"><option value="gemini-2.5-flash"><option value="gemini-2.5-pro"></datalist>
       </label>
       <label>Email cho MyMemory <small>(không bắt buộc, tăng hạn mức ngày)</small>
         <input id="setEmail" type="email" placeholder="ban@example.com">
@@ -129,17 +174,45 @@
     </form>
   </dialog>
 
+  <dialog id="editDlg">
+    <form method="dialog">
+      <h2>Sửa đoạn dịch <small id="editWhere"></small></h2>
+      <div class="orig-box" id="editOrig"></div>
+      <label>Bản dịch
+        <textarea id="editText" rows="7" autofocus></textarea>
+      </label>
+      <div class="edit-row">
+        <select id="editEngine" aria-label="Engine để dịch lại">
+          <option value="google">Google Translate</option>
+          <option value="chrome">Chrome trên máy</option>
+          <option value="mymemory">MyMemory</option>
+          <option value="gemini">Gemini</option>
+        </select>
+        <button type="button" class="btn" id="editRetrans">Dịch lại đoạn này</button>
+        <button type="button" class="btn ghost" id="editRetransPage">Dịch lại cả trang</button>
+      </div>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost" id="editKeep" title="Không dịch đoạn này, hiện chữ gốc">Giữ nguyên bản gốc</button>
+        <span class="grow"></span>
+        <button class="btn ghost" value="cancel">Huỷ</button>
+        <button class="btn primary" value="ok">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="jsonInput" accept=".json,application/json" hidden>
   <div id="tip" hidden></div>
   <div id="toasts" aria-live="polite"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-  <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+  <script src="vendor/pdf.min.js"></script>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/fontkit.umd.min.js"></script>
+  <script src="vendor/docx.umd.js"></script>
   <script src="js/core.js"></script>
   <script src="js/translate.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/export.js"></script>
+  <script src="js/ocr.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

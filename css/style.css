@@ -108,6 +108,19 @@ button, input, select { font: inherit; color: inherit; }
 }
 .menu-list button:hover { background: var(--accent-soft); }
 .menu-list small { color: var(--muted); }
+.menu-list hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+.menu-note { padding: 6px 12px 8px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+
+/* nút Dịch tách đôi: Dịch | ▾ */
+.menu.split { display: inline-flex; }
+.menu.split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.menu.split > .caret { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 7px 9px; border-left: 1px solid rgba(255, 255, 255, .35); }
+
+.search input {
+  width: 150px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+}
+.search input:focus { outline: none; border-color: var(--accent); width: 190px; }
+.search .mono { font-size: 12px; min-width: 0; }
 
 /* ---------- Tiến độ ---------- */
 .progress {
@@ -147,6 +160,21 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .drop strong { color: var(--text); font-size: 18px; margin-top: 6px; }
 .drop span { color: var(--muted); font-size: 14px; }
 .drop:hover, .drop.over, .drop:focus-visible { border-color: var(--accent); transform: translateY(-2px); background: var(--accent-soft); outline: none; }
+/* bài đã mở gần đây */
+.recent { margin-top: 22px; text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow); }
+.recent-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.recent h3 { margin: 0 0 8px; font-size: 15px; }
+.recent-head .mono { font-size: 12px; }
+.recent ul { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.recent li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border); }
+.recent li:first-child { border-top: 0; }
+.ri-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ri-main b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ri-main small { color: var(--muted); font-size: 12px; }
+.recent li .btn { padding: 4px 12px; }
+.recent-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.recent-actions .btn { padding: 4px 12px; font-size: 13px; }
+
 .chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 0; margin: 22px 0 10px; }
 .chips li { padding: 5px 12px; border: 1px solid var(--border); border-radius: 99px; background: var(--panel); font-size: 13px; color: var(--muted); }
 .hero .fine { font-size: 13px; margin: 12px auto 0; }
@@ -166,7 +194,8 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.vi { background: var(--accent); }
-.scroll { flex: 1; overflow: auto; position: relative; background: var(--canvas-bg); scroll-behavior: auto; }
+/* touch-action: trình duyệt chỉ lo cuộn, còn chụm hai ngón để thu phóng do app xử lý */
+.scroll { flex: 1; overflow: auto; position: relative; background: var(--canvas-bg); scroll-behavior: auto; touch-action: pan-x pan-y; }
 .pages { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; min-width: min-content; }
 
 .page {
@@ -174,14 +203,29 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 }
 .page canvas { display: block; }
 .page .num {
-  position: absolute; left: 8px; top: 8px; font-size: 11px; padding: 2px 8px; border-radius: 99px;
+  position: absolute; left: 8px; top: 8px; font-size: 11px; padding: 2px 8px; border-radius: 99px; z-index: 4;
   background: rgba(20, 22, 50, .55); color: #fff; opacity: 0; transition: .2s; pointer-events: none;
 }
 .page:hover .num { opacity: 1; }
 .page .badge {
-  position: absolute; right: 10px; top: 10px; font-size: 12px; padding: 3px 10px; border-radius: 99px;
-  background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  position: absolute; right: 10px; top: 10px; font-size: 12px; padding: 3px 10px; border-radius: 99px; z-index: 4;
+  background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); pointer-events: none;
 }
+
+/* ---------- Lớp chữ trong suốt (bôi đen, copy) ---------- */
+/* .textLayer: lớp chữ của PDF.js cho bản gốc (theo pdf_viewer.css của PDF.js 3.11); .tlayer: lớp tự dựng từ các khối */
+.textLayer, .tlayer {
+  position: absolute; inset: 0; overflow: hidden; line-height: 1; z-index: 2; opacity: .25;
+  text-align: initial; -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0;
+}
+.textLayer :is(span, br), .tlayer span {
+  color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0;
+}
+.textLayer span.markedContent { top: 0; height: 0; }
+.textLayer ::selection, .tlayer ::selection { background: #00f; background: AccentColor; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: -1; cursor: default; user-select: none; }
+.textLayer .endOfContent.active { top: 0; }
 .page.pending::after, .page.working::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(110deg, transparent 30%, rgba(79, 70, 229, .12) 50%, transparent 70%);
@@ -192,30 +236,51 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* ---------- Rê chuột ---------- */
 .hl {
-  position: absolute; pointer-events: none; z-index: 2; border-radius: 4px;
+  position: absolute; pointer-events: none; z-index: 3; border-radius: 4px;
   border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
+.hl.flash { animation: flash 1.2s ease-out 2; }
+@keyframes flash { 0%, 100% { background: color-mix(in srgb, var(--accent) 16%, transparent); } 30% { background: color-mix(in srgb, #f59e0b 45%, transparent); } }
+.edit-btn {
+  position: absolute; z-index: 5; border: 0; border-radius: 8px; padding: 3px 9px; cursor: pointer;
+  font: 600 12px/1.4 "Segoe UI", system-ui, sans-serif; color: #fff; white-space: nowrap;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.edit-btn:hover { filter: brightness(1.1); }
 #tip {
-  position: fixed; z-index: 60; max-width: min(460px, 86vw); padding: 10px 14px; border-radius: 10px;
+  position: fixed; z-index: 60; max-width: min(460px, 86vw); max-height: 60vh; overflow: hidden; padding: 10px 14px; border-radius: 10px;
   background: var(--panel); color: var(--text); border: 1px solid var(--accent); box-shadow: var(--shadow);
-  font-size: 14px; line-height: 1.5; pointer-events: none;
+  font-size: 14px; line-height: 1.5; pointer-events: none; white-space: pre-wrap;
 }
 
 /* ---------- Hộp thoại + toast ---------- */
 dialog {
-  border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: min(480px, 92vw);
+  border: 1px solid var(--border); border-radius: 16px; padding: 22px; width: min(520px, 92vw); max-height: 90vh; overflow: auto;
   background: var(--panel); color: var(--text); box-shadow: var(--shadow);
 }
 dialog::backdrop { background: rgba(10, 12, 24, .5); backdrop-filter: blur(2px); }
 dialog h2 { margin: 0 0 14px; font-size: 19px; }
+dialog h2 small { color: var(--muted); font-size: 14px; font-weight: 500; }
 dialog label { display: block; font-weight: 500; margin-bottom: 12px; }
 dialog label small { color: var(--muted); font-weight: 400; }
-dialog input, dialog select {
-  display: block; width: 100%; margin-top: 5px; padding: 8px 10px;
+dialog code { font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+dialog input, dialog select, dialog textarea {
+  display: block; width: 100%; margin-top: 5px; padding: 8px 10px; font: inherit; color: inherit;
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
 }
+dialog textarea { resize: vertical; line-height: 1.5; }
+dialog label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+dialog label.check input { width: auto; margin: 0; }
 .dlg-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.dlg-actions .grow { flex: 1; }
+#editDlg { width: min(640px, 94vw); }
+.orig-box {
+  max-height: 160px; overflow: auto; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px;
+  background: var(--panel-2); color: var(--muted); font-size: 14px; line-height: 1.5;
+}
+.edit-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.edit-row select { width: auto; flex: 1; min-width: 150px; margin: 0; }
 
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: min(420px, 90vw); }
 .toast {
@@ -233,4 +298,10 @@ dialog input, dialog select {
   .viewer { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   .viewer[data-mode="orig"], .viewer[data-mode="trans"] { grid-template-rows: 1fr; }
   .pane { border-right: 0; border-bottom: 1px solid var(--border); }
+  .search input, .search input:focus { width: 120px; }
+}
+@media (max-width: 520px) {
+  .seg button { padding: 6px 9px; }
+  .pages { padding: 8px; }
+  .recent li .btn { padding: 4px 9px; }
 }

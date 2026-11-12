@@ -1,9 +1,20 @@
-/* hiuhf1 - các engine dịch miễn phí và cơ chế tự chuyển dự phòng */
+/* hiuhf1 - các engine dịch, che phần không cần dịch, bộ nhớ dịch và cơ chế tự chuyển dự phòng */
 window.HV = window.HV || {};
 
 (function (HV) {
   const TARGET = 'vi';
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
+  const abortError = () => new DOMException('Đã dừng', 'AbortError');
+
+  // Chờ ms mili giây; bấm Dừng thì thôi chờ ngay
+  function sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal && signal.aborted) { reject(abortError()); return; }
+      const onAbort = () => { clearTimeout(t); reject(abortError()); };
+      const t = setTimeout(() => { if (signal) signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
 
   // Chạy fn trên mảng với tối đa `limit` tác vụ song song, giữ nguyên thứ tự kết quả
   async function pool(items, limit, fn, signal) {
@@ -11,7 +22,7 @@ window.HV = window.HV || {};
     let next = 0;
     const worker = async () => {
       while (next < items.length) {
-        if (signal.aborted) throw new DOMException('Đã dừng', 'AbortError');
+        if (signal.aborted) throw abortError();
         const i = next++;
         out[i] = await fn(items[i], i);
       }
@@ -39,6 +50,75 @@ window.HV = window.HV || {};
     return chunks;
   }
 
+  // Chuẩn hoá bản dịch: bỏ ký tự độ rộng 0 (Google hay chèn U+200B, làm PDF xuất ra bị hở chữ)
+  const clean = (s) => String(s == null ? '' : s).normalize('NFC').replace(/[​-‏⁠﻿­]/g, '').replace(/\s+/g, ' ').trim();
+
+  /* ---------- Che phần không cần dịch bằng mã giữ chỗ ⟦n⟧ ---------- */
+  // Google, Chrome, MyMemory giữ nguyên ⟦n⟧, nên dùng để bảo vệ thuật ngữ, trích dẫn, URL và công thức.
+  // (⟦ ⟧ là U+27E6/U+27E7, cố ý để ngoài dải ký hiệu toán bên dưới.)
+  const MATH_CH = /[²³¹Ͱ-Ͽᴬ-ᵪ′-‷⁰-₟←-⇿∀-⋿⌀-⏿⟀-⟥⟨-⟯⦀-⫿\u{1d400}-\u{1d7ff}]|[A-Za-z0-9)\]][_^=]|[_^=][A-Za-z0-9(]/u;
+  const MATH_WEAK = /^(?:[A-Za-z]|\d+(?:[.,]\d+)?|[-+=<>×·*/|:,;]+|[A-Za-z]?\(\S*\))$/;
+  const PH = /⟦\s*(\d+)\s*⟧/g;
+
+  // 2 = chắc chắn là công thức, 1 = có thể thuộc công thức (biến 1 chữ cái, số, toán tử), 0 = chữ thường
+  function mathKind(tok) {
+    if (!tok || /⟦/.test(tok)) return 0;
+    const t = tok.replace(/[.,;:!?]+$/, '');
+    if (MATH_CH.test(t)) return 2;
+    const core = t.replace(/^[([{]+|[)\]}]+$/g, '');
+    if (/^[aAI]$/.test(core)) return 0; // "a", "I" là từ tiếng Anh
+    return !core || MATH_WEAK.test(t) || MATH_WEAK.test(core) ? 1 : 0;
+  }
+
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // glossary: [{ src, dst }] (dst null = giữ nguyên). Trả về { text, slots, translatable }
+  HV.mask = function (text, glossary) {
+    const slots = [];
+    const add = (val) => { slots.push(val); return '⟦' + (slots.length - 1) + '⟧'; };
+    let t = text;
+    // URL, email
+    t = t.replace(/\b(?:https?:\/\/|www\.)[^\s]+[^\s.,;:)\]]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, (m) => add(m));
+    // trích dẫn dạng số: [4], [4, 7], [12–15]
+    t = t.replace(/\[\d+(?:\s*[,–-]\s*\d+)*\]/g, (m) => add(m));
+    // thuật ngữ do người dùng nhập (dài trước, không phân biệt hoa thường, nhận cả số nhiều -s/-es)
+    const terms = (glossary || []).slice().sort((a, b) => b.src.length - a.src.length);
+    for (const g of terms) {
+      const re = new RegExp('(?<![\\p{L}\\p{N}_⟦])' + escapeRe(g.src) + '(?:e?s)?(?![\\p{L}\\p{N}_])', 'giu');
+      t = t.replace(re, (m) => add(g.dst || m));
+    }
+    // công thức nằm giữa câu: cụm token liền nhau có ít nhất một ký hiệu toán
+    const toks = t.split(/(\s+)/);
+    let res = '';
+    for (let i = 0; i < toks.length;) {
+      if (i % 2 || !mathKind(toks[i])) { res += toks[i++]; continue; }
+      let j = i, strong = false;
+      while (j < toks.length && mathKind(toks[j])) { if (mathKind(toks[j]) === 2) strong = true; j += 2; }
+      const run = toks.slice(i, j - 1).join('');
+      if (strong) {
+        const tail = (run.match(/[.,;:!?]+$/) || [''])[0]; // dấu câu cuối cụm để ngoài
+        res += add(run.slice(0, run.length - tail.length)) + tail;
+      } else res += run;
+      i = j - 1;
+    }
+    const letters = (res.replace(PH, '').match(/\p{L}/gu) || []).length;
+    return { text: res, slots, translatable: letters >= 3 };
+  };
+
+  // Trả mã giữ chỗ về nội dung cũ. ok = false nếu engine làm mất hoặc nhân đôi mã
+  HV.unmask = function (out, slots) {
+    const seen = new Set();
+    let dup = false;
+    const text = out.replace(PH, (m, d) => {
+      const s = slots[+d];
+      if (s === undefined) return m;
+      if (seen.has(+d)) dup = true;
+      seen.add(+d);
+      return s;
+    });
+    return { text, ok: !dup && seen.size === slots.length && !/[⟦⟧]/.test(text) };
+  };
+
   /* ---------- Google Translate (không chính thức) ---------- */
   // Endpoint /t nhận nhiều tham số q trong một lần gọi, nên ít bị giới hạn tốc độ hơn gọi từng đoạn.
   async function gtxBatch(texts, src, signal) {
@@ -51,7 +131,12 @@ window.HV = window.HV || {};
       body,
       signal,
     });
-    if (!res.ok) throw new Error('Google trả về HTTP ' + res.status);
+    if (!res.ok) {
+      const e = new Error('Google trả về HTTP ' + res.status);
+      const ra = Number(res.headers.get('Retry-After'));
+      if (ra) e.retryAfter = ra * 1000;
+      throw e;
+    }
     const data = await res.json();
     if (!Array.isArray(data) || data.length !== texts.length) throw new Error('Google trả về sai số đoạn');
     // sl=auto trả [bản dịch, ngôn ngữ nguồn], sl cụ thể trả thẳng chuỗi
@@ -83,7 +168,7 @@ window.HV = window.HV || {};
     if (!res.ok) throw new Error('MyMemory trả về HTTP ' + res.status);
     const data = await res.json();
     const t = data.responseData && data.responseData.translatedText;
-    if (data.quotaFinished || /MYMEMORY WARNING/i.test(t || '')) throw new Error('MyMemory đã hết hạn mức trong ngày');
+    if (data.quotaFinished || /MYMEMORY WARNING/i.test(t || '')) throw fatal('MyMemory đã hết hạn mức trong ngày');
     if (Number(data.responseStatus) !== 200 || !t) throw new Error('MyMemory lỗi: ' + (data.responseDetails || data.responseStatus));
     return t;
   }
@@ -115,39 +200,90 @@ window.HV = window.HV || {};
   HV.prepareChrome = chromeTranslator;
 
   /* ---------- Gemini (cần key miễn phí) ---------- */
-  async function geminiBatch(texts, st, signal) {
-    const out = [];
-    let group = [], size = 0;
+  async function geminiError(res) {
+    let msg = '', retry = 0;
+    try {
+      const j = await res.json();
+      msg = (j.error && j.error.message) || '';
+      for (const d of (j.error && j.error.details) || []) if (d.retryDelay) retry = parseFloat(d.retryDelay) * 1000;
+    } catch (e) { /* thân lỗi không phải JSON */ }
+    const ra = Number(res.headers.get('Retry-After'));
+    if (ra) retry = ra * 1000;
+    const e = new Error('Gemini trả về HTTP ' + res.status + (msg ? ': ' + msg.slice(0, 160) : ''));
+    // key sai, không có quyền, model không tồn tại: thử lại cũng vô ích
+    if (res.status === 401 || res.status === 403 || res.status === 404 || (res.status === 400 && /api key/i.test(msg))) e.fatal = true;
+    if (retry) e.retryAfter = retry;
+    return e;
+  }
+
+  async function geminiCall(g, st, signal, opts) {
+    const gl = (opts.glossary || []).map((x) => '- ' + x.src + ' → ' + (x.dst || x.src + ' (giữ nguyên)')).join('\n');
+    const prompt =
+      'Bạn là dịch giả học thuật. Dịch từng đoạn trong mảng JSON sau sang tiếng Việt, văn phong khoa học, tự nhiên, ' +
+      'giữ nguyên thuật ngữ chuyên ngành thông dụng, tên riêng, công thức, ký hiệu, trích dẫn và số liệu.' +
+      (opts.context ? '\nNgữ cảnh - bài báo đang dịch:\n' + opts.context : '') +
+      (gl ? '\nBảng thuật ngữ bắt buộc dùng:\n' + gl : '') +
+      '\nChỉ trả về một mảng JSON các chuỗi, đúng số phần tử và đúng thứ tự.\n' + JSON.stringify(g);
+    const res = await fetch(GEMINI + 'models/' + encodeURIComponent(st.geminiModel) + ':generateContent', {
+      method: 'POST',
+      // key để trong header thay vì URL để không lọt vào lịch sử/nhật ký
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': st.geminiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+      }),
+      signal,
+    });
+    if (!res.ok) throw await geminiError(res);
+    const data = await res.json();
+    if (data.promptFeedback && data.promptFeedback.blockReason) throw fatal('Gemini từ chối nội dung (' + data.promptFeedback.blockReason + ')');
+    const c = data.candidates && data.candidates[0];
+    const why = (c && c.finishReason) || '';
+    const raw = c && c.content && Array.isArray(c.content.parts) ? c.content.parts.filter((p) => !p.thought).map((p) => p.text || '').join('') : '';
+    if (!raw) {
+      throw Object.assign(new Error('Gemini không trả về nội dung' + (why ? ' (' + why + ')' : '')), {
+        split: why === 'MAX_TOKENS',
+        fatal: /SAFETY|RECITATION|PROHIBITED|BLOCKLIST|SPII/.test(why),
+      });
+    }
+    let arr;
+    try { arr = JSON.parse(raw.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')); }
+    catch (e) { throw Object.assign(new Error('Gemini trả về JSON lỗi' + (why === 'MAX_TOKENS' ? ' (hết token)' : '')), { split: true }); }
+    if (!Array.isArray(arr) || arr.length !== g.length) throw Object.assign(new Error('Gemini trả về sai số đoạn'), { split: true });
+    return arr.map((x) => String(x == null ? '' : x));
+  }
+
+  async function geminiBatch(texts, st, signal, opts) {
     const groups = [];
+    let group = [], size = 0;
     for (const t of texts) {
       if (group.length && size + t.length > 7000) { groups.push(group); group = []; size = 0; }
       group.push(t); size += t.length;
     }
     if (group.length) groups.push(group);
-    for (const g of groups) {
-      const prompt =
-        'Bạn là dịch giả học thuật. Dịch từng đoạn trong mảng JSON sau sang tiếng Việt, văn phong khoa học, tự nhiên, ' +
-        'giữ nguyên thuật ngữ chuyên ngành thông dụng, tên riêng, công thức, ký hiệu và số liệu. ' +
-        'Chỉ trả về một mảng JSON các chuỗi, đúng số phần tử và đúng thứ tự.\n' + JSON.stringify(g);
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(st.geminiModel) + ':generateContent?key=' + encodeURIComponent(st.geminiKey);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-        }),
-        signal,
-      });
-      if (!res.ok) throw new Error('Gemini trả về HTTP ' + res.status);
-      const data = await res.json();
-      const raw = data.candidates && data.candidates[0].content.parts[0].text;
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr) || arr.length !== g.length) throw new Error('Gemini trả về sai số đoạn');
-      out.push(...arr.map(String));
-    }
+    // nhóm trả về hỏng (thiếu đoạn, JSON cụt) thì chia đôi rồi gửi lại
+    const runGroup = async (g) => {
+      try { return await geminiCall(g, st, signal, opts || {}); }
+      catch (e) {
+        if (!e.split || g.length < 2 || signal.aborted) throw e;
+        const h = Math.ceil(g.length / 2);
+        return (await runGroup(g.slice(0, h))).concat(await runGroup(g.slice(h)));
+      }
+    };
+    const out = [];
+    for (const g of groups) out.push(...await runGroup(g));
     return out;
   }
+
+  // Danh sách model Gemini dùng được với key này (cho ô chọn model trong Cài đặt)
+  HV.geminiModels = async function (key) {
+    const res = await fetch(GEMINI + 'models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+    if (!res.ok) throw await geminiError(res);
+    const data = await res.json();
+    return (data.models || [])
+      .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name))
+      .map((m) => m.name.replace(/^models\//, ''));
+  };
 
   /* ---------- Danh sách engine ---------- */
   HV.engines = {
@@ -164,7 +300,7 @@ window.HV = window.HV || {};
         const tr = await chromeTranslator(st.src);
         const out = [];
         for (const t of texts) {
-          if (signal.aborted) throw new DOMException('Đã dừng', 'AbortError');
+          if (signal.aborted) throw abortError();
           out.push(await tr.translate(t));
         }
         return out;
@@ -180,39 +316,68 @@ window.HV = window.HV || {};
       label: 'Gemini (API key)',
       available: (st) => !!(st && st.geminiKey),
       batch: geminiBatch,
+      llm: true, // tự hiểu bảng thuật ngữ và ngữ cảnh, không cần che mã giữ chỗ
     },
   };
 
-  /* ---------- Bộ dịch có thử lại và tự chuyển engine ---------- */
+  /* ---------- Bộ dịch: bộ nhớ dịch, che mã giữ chỗ, thử lại và tự chuyển engine ---------- */
+  // opts: { glossary: [{ src, dst }], context: 'tiêu đề + tóm tắt bài', fallback: true }
   HV.Translator = class {
-    constructor(settings, onSwitch) {
+    constructor(settings, onSwitch, opts) {
       this.st = settings;
       this.onSwitch = onSwitch || (() => {});
+      this.opts = opts || {};
       const rest = ['google', 'chrome', 'mymemory'].filter((e) => e !== settings.engine);
-      this.order = [settings.engine, ...rest];
+      this.order = this.opts.fallback === false ? [settings.engine] : [settings.engine, ...rest];
       this.cur = 0;
+      // bảng thuật ngữ đổi thì bản dịch cũ trong bộ nhớ dịch không còn đúng
+      this.gsig = (this.opts.glossary || []).length ? HV.hash(JSON.stringify(this.opts.glossary)) : '';
     }
     get name() { return this.order[this.cur]; }
     get label() { return HV.engines[this.name].label; }
+    tmKey(name) { return name + '|' + this.gsig + (name === 'gemini' ? '|' + this.st.geminiModel : ''); }
 
-    async translate(texts, signal) {
+    // Dịch mảng văn bản. opts.fresh: bỏ qua bộ nhớ dịch (dịch lại thật).
+    // Trả về { out: [bản dịch], eng: [engine đã dịch từng đoạn] }
+    async translate(texts, signal, opts) {
+      opts = opts || {};
+      const out = new Array(texts.length).fill(null), eng = new Array(texts.length).fill(null);
+      const hs = texts.map((t) => HV.hash(t));
+      if (!opts.fresh && texts.length) {
+        const key = this.tmKey(this.name);
+        (await HV.store.tmGet(hs)).forEach((v, i) => { if (v && typeof v[key] === 'string') { out[i] = v[key]; eng[i] = this.name; } });
+      }
+      const miss = [];
+      out.forEach((v, i) => { if (v === null) miss.push(i); });
+      if (miss.length) {
+        const res = await this.run(miss.map((i) => texts[i]), signal);
+        miss.forEach((i, j) => { out[i] = res.out[j]; eng[i] = res.name; });
+        await HV.store.tmPut(miss.map((i) => ({ h: hs[i], k: this.tmKey(res.name), t: out[i] })));
+      }
+      return { out, eng };
+    }
+
+    // Gọi engine hiện tại, có thử lại; lỗi mãi thì chuyển engine kế tiếp
+    async run(texts, signal) {
       for (;;) {
-        const eng = HV.engines[this.name];
+        const name = this.name;
         let lastErr;
-        if (eng.available(this.st)) {
+        if (HV.engines[name].available(this.st)) {
           for (let attempt = 0; attempt < 3; attempt++) {
-            try { return await eng.batch(texts, this.st, signal); }
+            try { return { out: await this.call(name, texts, signal), name }; }
             catch (e) {
               if (e.name === 'AbortError' || signal.aborted) throw e;
               lastErr = e;
               if (e.fatal) break;
-              if (attempt < 2) await sleep([2000, 8000][attempt]);
+              if (attempt < 2) {
+                const wait = e.retryAfter ? Math.min(e.retryAfter, 60000) : [2000, 8000][attempt] * (0.8 + Math.random() * 0.4);
+                await sleep(wait, signal);
+              }
             }
           }
         } else {
           lastErr = new Error('Engine chưa sẵn sàng');
         }
-        // chuyển sang engine kế tiếp còn dùng được
         let moved = false;
         while (this.cur + 1 < this.order.length) {
           this.cur++;
@@ -221,6 +386,27 @@ window.HV = window.HV || {};
         if (!moved) throw lastErr;
         this.onSwitch(this.label, lastErr);
       }
+    }
+
+    async call(name, texts, signal) {
+      const eng = HV.engines[name];
+      if (eng.llm) return (await eng.batch(texts, this.st, signal, this.opts)).map(clean);
+      const masked = texts.map((t) => HV.mask(t, this.opts.glossary));
+      const out = masked.map((m) => HV.unmask(m.text, m.slots).text); // đoạn chỉ toàn mã giữ chỗ: không cần gửi
+      const at = [];
+      masked.forEach((m, i) => { if (m.translatable) at.push(i); });
+      const res = at.length ? await eng.batch(at.map((i) => masked[i].text), this.st, signal) : [];
+      const redo = [];
+      at.forEach((i, j) => {
+        const u = HV.unmask(String(res[j] == null ? '' : res[j]), masked[i].slots);
+        if (u.ok) out[i] = u.text; else redo.push(i);
+      });
+      // engine làm mất mã giữ chỗ: dịch lại các đoạn đó, không che
+      if (redo.length) {
+        const r2 = await eng.batch(redo.map((i) => texts[i]), this.st, signal);
+        redo.forEach((i, j) => { out[i] = r2[j]; });
+      }
+      return out.map(clean);
     }
   };
 })(window.HV);
